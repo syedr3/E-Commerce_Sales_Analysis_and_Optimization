@@ -1,0 +1,201 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Predicting Online Sales: Analyzing Factors Influencing Product Pricing and Sales Performance"
+
+## Authors: Syed Ahmed Raza, Pranav Rajkumar, Vaibhav Sahai, Rutva Pandya
+
+
+# Introduction
+
+**What is this data? Where did it come from? What are the variables?**
+
+We've got a dataset of online sales from Kaggle with over 120,000 records. The data includes information regarding what products were sold, their size, when they were sold, how many were sold, and the total amount of the sale (price of product). It covers product categories, sale dates, quantities, and the total money made from each sale.
+
+The dataset contains sales data for an e-commerce platform, with the following key variables:
+
+Category: Type of product sold (categorical).
+
+Size: Product size (categorical).
+
+Date: Date of the sale (numeric).
+
+Status: Status of the sale (categorical).
+
+Fulfillment: Method of fulfillment (categorical).
+
+B2B: Business-to-business sale (binary).
+
+Qty: Quantity of the product sold (numeric).
+
+Amount: Sale amount in the respective currency (numeric, response variable).
+
+Ship Service Level: Shipping type (categorical)
+
+**Why is it interesting to you?**
+This data is intriguing because it lets us understand how different product features might affect sales. As people interested in the world of online selling, we want to understand what makes some products sell better than others. It's like solving a puzzle - figuring out why certain products do well and others don't.
+
+**Why are you creating a model for this data? What is the goal of this model?**
+Our main goal is to build a model that can help understand what factors contribute to the pricing of online products. We want to answer questions like:
+Can we predict how much money a product might make based on the given predictors?
+What features make a product more likely to sell?
+
+**How can a store use this information to generate more revenue?**
+By creating this model, we hope to give online businesses some practical advice about what products to stock, how to price them, and how to market them better. Essentially, we're trying to help stores make more money by understanding their sales data.
+
+
+# Methods
+
+#### Data Pre-processing
+
+```{r}
+# Data pre-processing
+main_data = read.csv("Amazon Sale Report.csv")
+#names(main_data)
+main_data = main_data[,c("Category","Size","Date","Status","Fulfilment","B2B","Qty","Amount","ship.service.level")] # Extracting relevant variables
+main_data = na.omit(main_data) # Removing any rows with N/A
+
+# Converting each column to its respective data type
+main_data$Category = as.factor(main_data$Category)
+main_data$Size = as.factor(main_data$Size)
+main_data$Status = as.factor(main_data$Status)
+main_data$Date = as.Date(main_data$Date, format = "%m-%d-%y")
+main_data$Fulfilment = as.factor(main_data$Fulfilment)
+main_data$B2B = as.factor(main_data$B2B)
+main_data$ship.service.level = as.factor(main_data$ship.service.level)
+
+main_data = main_data[complete.cases(main_data), ]  # This removes rows with any NA/NaN/Inf
+```
+
+#### Different Models
+
+```{r}
+additive_model = lm(Amount ~ ., data = main_data)
+
+sqrt_model = lm(Amount ~ Category + Size + Date + Status + Fulfilment + B2B + sqrt(Qty) + ship.service.level, data = main_data)
+
+poly_model = lm(Amount ~ Category + Size + Date + Status + Fulfilment + B2B + poly(Qty, 2) + ship.service.level, data = main_data)
+
+
+hypothesis_1 = lm(Amount ~ Qty * Status + Category + Size + Fulfilment + B2B + ship.service.level, data = main_data) # Hypothesis: The relationship between Qty and sales (Amount) might vary based on the Status of the order (e.g., delivered, canceled).
+
+hypothesis_2 = interaction_model_5 = lm(Amount ~ Qty + Category * B2B + Size + Status + Fulfilment + ship.service.level, data = main_data) # Hypothesis: The effect of the product Category on sales might differ between B2B and non-B2B transactions.
+```
+
+#### Adjusted R squared
+
+The adjusted R-squared values for the different models show how well each model explains the variation in the data. The **additive model** has an adjusted R-squared of 0.4676, while the **square root model** is slightly lower at 0.4579, suggesting that the transformation didn't improve model fit much. The **polynomial model** performs slightly better with an adjusted R-squared of 0.4696, indicating it may capture more complexity in the data. Both **hypothesis models** (Qty * Status interaction and Category * B2B interaction) also have adjusted R-squared values close to 0.468, showing they perform similarly to the additive model. Overall, the polynomial model has the best fit among the models tested. Refer to the **Appendix** for the full table of results.
+
+#### ANOVA
+
+The ANOVA results highlight that Model 3, which includes a polynomial transformation of `Qty`, significantly improves the model fit, as indicated by the low p-value (< 2.2e-16). This suggests that the polynomial transformation contributes considerably to explaining the variation in the data. In contrast, Model 2, which applies a square root transformation to `Qty`, shows no significant improvement, as the residual sum of squares (RSS) remains largely unchanged. Models 4 and 5, which include interaction terms, also show minimal improvements, further supporting the conclusion that the polynomial model is the most effective in capturing the relationship between predictors and the sales amount. Refer to the **Appendix** for the full table of results.
+
+# Results
+
+```{r, warning = FALSE}
+# Function to plot Residuals vs Fitted and Q-Q Plot with model titles
+plot_diagnostics <- function(model, model_name) {
+  par(mfrow = c(1, 2)) # Set up a 1x2 plotting layout
+  
+  # Residuals vs Fitted
+  plot(model, which = 1, main = paste(model_name, "- Residuals vs Fitted"))
+  
+  # Q-Q Plot
+  plot(model, which = 2, main = paste(model_name, "- Q-Q Plot"))
+}
+
+plot_diagnostics(poly_model, "Polynomial Model")
+
+
+```
+
+**The Residuals vs. Fitted Values plot seems to follow somewhat of a constant variance and the QQplot also seems to follow a normal distribution. All assumptions are hence being met.**
+
+```{r}
+set.seed(22)
+trn_idx = sample(1:nrow(main_data), 60000)
+trn = main_data[trn_idx, ]
+tst = main_data[-trn_idx, ]
+train_test_rmse = function(model){
+  train_rmse = sqrt(mean(((trn$Amount - predict(model, trn)))^2))
+  test_rmse = sqrt(mean(((tst$Amount - predict(model, tst)))^2))
+  c(train_rmse,test_rmse)
+}
+
+# Create a data frame with RMSE for each model
+model_names <- c("Hypothesis 1", "Hypothesis 2", "Square Root Model", "Polynomial Model", "Additive Model")
+rmse_values <- sapply(list(hypothesis_1, hypothesis_2, sqrt_model, poly_model, additive_model), train_test_rmse)
+
+# Convert the matrix to a data frame for better readability
+rmse_df <- data.frame(
+  Model = model_names,
+  Train_RMSE = rmse_values[1, ],
+  Test_RMSE = rmse_values[2, ]
+)
+
+# View the data frame
+print(rmse_df)
+
+```
+The RMSE values show that **Hypothesis 1** performs the best with the lowest RMSE for both training (204.86) and test (205.16) sets. The **Polynomial Model** is close behind, with values of 204.64 for training and 204.91 for testing. **Additive Model** and **Square Root Model** have slightly higher RMSE values, with the **Square Root Model** being the highest at 207.52 for training and 206.53 for testing, indicating it might not capture the data patterns as well. **Hypothesis 2** has similar RMSE values for both sets, performing a bit worse than Hypothesis 1.
+
+# Discussion
+
+Looking at the results, the **Polynomial Model** seems to be the best overall, with the lowest RMSE and the highest adjusted R-squared. This model, which includes a squared term for `Qty`, does a better job of capturing the relationship between the variables and the sales amount. It gives a good balance between complexity and performance, which is why it outperforms the other models.
+
+The **Additive Model**, **Square Root Model**, and **Hypothesis 2** models are all close behind in performance but show slightly higher RMSE values, especially the **Square Root Model**, which had the highest RMSE. This suggests that the square root transformation of `Qty` doesn’t really improve the model much. The **Hypothesis 1** model, which looks at the interaction between `Qty` and `Status`, performed well and had the lowest RMSE overall, but the **Polynomial Model** still edges it out.
+
+The **ANOVA results** show that the **Polynomial Model** (Model 3) made a significant difference compared to other models, especially in terms of reducing the residual sum of squares. This means the polynomial model better explains the variation in the data. In contrast, models like the **Square Root Model** and **Hypothesis 2** didn’t improve the fit much, which shows that adding complexity in those ways didn’t really add value.
+
+The LOOCV results provide additional insight into model performance. The **Additive Model** shows a LOOCV RMSE of 205.24, which is consistent with its RMSE results, indicating solid generalization. The **Square Root Model** has a slightly higher LOOCV RMSE of 207.11, suggesting it may not generalize as well as other models. The **Polynomial Model** performs similarly, with a LOOCV RMSE of 205.16, reinforcing its strength. However, **Hypothesis 1** produces an infinite LOOCV RMSE, indicating potential issues with model stability or overfitting. **Hypothesis 2** has a LOOCV RMSE of 205.68, which aligns with its other performance metrics, suggesting it is reliable. These LOOCV results support the conclusion that the **Polynomial Model** and the model examining the interaction between `Qty` and `Status` are the most robust models for predicting sales. Refer to the **Appendix** for the full table of results.
+
+In the end, the **Polynomial Model** stands out as the best option, offering the most accurate predictions of sales amounts. It captures the more complex relationships between the variables, which can help with more precise forecasting and better decision-making for sales strategies.
+
+# Appendix
+
+#### ANOVA Calculations
+
+```{r}
+anova(additive_model, sqrt_model, poly_model, hypothesis_1, hypothesis_2)
+```
+
+#### Adjusted R squared Calculations
+
+```{r}
+# Create a dataframe to display adjusted R-squared values for each model
+adj_r_squared_data <- data.frame(
+  Model = c(
+    "Additive Model",
+    "Square Root Model",
+    "Polynomial Model",
+    "Hypothesis 1: Qty * Status Interaction",
+    "Hypothesis 2: Category * B2B Interaction"
+  ),
+  Adjusted_R_Squared = c(
+    summary(additive_model)$adj.r.squared,
+    summary(sqrt_model)$adj.r.squared,
+    summary(poly_model)$adj.r.squared,
+    summary(hypothesis_1)$adj.r.squared,
+    summary(hypothesis_2)$adj.r.squared
+  )
+)
+
+# Display the dataframe
+adj_r_squared_data
+
+```
+
+#### LOOCV
+```{r}
+get_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+get_loocv_rmse(additive_model)
+get_loocv_rmse(sqrt_model)
+get_loocv_rmse(poly_model)
+get_loocv_rmse(hypothesis_1)
+get_loocv_rmse(hypothesis_2)
+```
+
